@@ -1,78 +1,59 @@
-name: Build Android App with Auto-Detect Package
+name: Sync Android App to PlainApp
 
 on:
   push:
-    branches: [ "main" ] # আপনার মেইন ব্রাঞ্চের নাম অন্য কিছু হলে (যেমন: master) তা পরিবর্তন করে দিন
-  workflow_dispatch: # এর মাধ্যমে আপনি গিটহাব ওয়েবসাইট থেকে ম্যানুয়ালি রান করতে পারবেন
+    branches:
+      - main # শুধুমাত্র main ব্রাঞ্চে পুশ হলে এই অ্যাকশনটি চলবে
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      # ১. মূল সোর্স কোড ক্লোন করা
+      - name: Checkout source code
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: gradle
+      # ২. টার্গেট রিপোজিটরি (plainapp) ক্লোন করা
+      - name: Clone destination repository
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config --global user.name "srizwan198704-dev"
+          git config --global user.email "srizwan198704-dev@users.noreply.github.com"
+          git clone https://x-access-token:${API_TOKEN_GITHUB}@github.com/srizwan198704-dev/plainapp.git target-repo
 
-    - name: Auto-Detect and Replace Package Name
-      run: |
-        NEW_PACKAGE="com.konasl.nagad"
-        
-        # app/build.gradle বা app/build.gradle.kts থেকে applicationId বা namespace ডিটেক্ট করা
-        OLD_PACKAGE=$(grep -r "applicationId" app/build.gradle* | head -n 1 | awk -F'["\']' '{print $2}')
-        
-        # যদি applicationId না পাওয়া যায়, তবে namespace চেক করবে
-        if [ -z "$OLD_PACKAGE" ]; then
-          OLD_PACKAGE=$(grep -r "namespace" app/build.gradle* | head -n 1 | awk -F'["\']' '{print $2}')
-        fi
-        
-        # যদি তাও না পাওয়া যায়, তবে বিল্ড এখানে স্টপ হয়ে যাবে
-        if [ -z "$OLD_PACKAGE" ]; then
-          echo "Error: Could not automatically detect the old package name!"
-          exit 1
-        fi
-        
-        echo "Detected Old Package: $OLD_PACKAGE"
-        echo "Target New Package: $NEW_PACKAGE"
-        
-        # যদি পুরোনো এবং নতুন প্যাকেজ একই হয়, তবে রিপ্লেস করার দরকার নেই
-        if [ "$OLD_PACKAGE" = "$NEW_PACKAGE" ]; then
-          echo "Package name is already up to date."
-        else
-          echo "Replacing $OLD_PACKAGE with $NEW_PACKAGE..."
+      # ৩. শুধুমাত্র এন্ড্রয়েডের ফাইলগুলো কপি করা
+      # (এখানে আমরা সাধারণত একটি এন্ড্রয়েড প্রজেক্টের core ফাইলগুলো রেখে বাকী সব বাদ দিচ্ছি)
+      - name: Filter and Copy Android Files
+        run: |
+          # টার্গেট ফোল্ডার পরিষ্কার করা (পুরানো ফাইল থাকলে মুছে যাবে)
+          rm -rf target-repo/*
           
-          # সব ফাইলে টেক্সট রিপ্লেস
-          find . -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "*.xml" -o -name "*.java" -o -name "*.kt" \) -exec sed -i "s/$OLD_PACKAGE/$NEW_PACKAGE/g" {} +
+          # এন্ড্রয়েডের জন্য প্রয়োজনীয় মূল ফাইল/ফোল্ডারগুলো কপি করা
+          # আপনার প্রজেক্টের স্ট্রাকচার অনুযায়ী নিচের নামগুলো প্রয়োজনে পরিবর্তন করতে পারেন
+          cp -r android target-repo/ 2>/dev/null || true
+          cp -r app target-repo/ 2>/dev/null || true
+          cp build.gradle target-repo/ 2>/dev/null || true
+          cp settings.gradle target-repo/ 2>/dev/null || true
+          cp gradle.properties target-repo/ 2>/dev/null || true
+          cp gradlew target-repo/ 2>/dev/null || true
+          cp -r gradle target-repo/ 2>/dev/null || true
+          cp .gitignore target-repo/ 2>/dev/null || true
+
+      # ৪. নতুন রিপোজিটরিতে শুধুমাত্র main ব্রাঞ্চে পুশ করা
+      - name: Push to Destination Repo
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.PAT_TOKEN }}
+        run: |
+          cd target-repo
+          git checkout -b main 2>/dev/null || git checkout main
+          git add -A
           
-          # ডিরেক্টরি স্ট্রাকচার (ফোল্ডার) পরিবর্তন
-          OLD_PATH=$(echo $OLD_PACKAGE | tr '.' '/')
-          NEW_PATH=$(echo $NEW_PACKAGE | tr '.' '/')
-          
-          # সম্ভাব্য সব সোর্স ডিরেক্টরিতে ফোল্ডার স্ট্রাকচার আপডেট করা
-          for dir in app/src/main/java app/src/androidTest/java app/src/test/java app/src/main/kotlin; do
-            if [ -d "$dir/$OLD_PATH" ]; then
-              echo "Moving files from $dir/$OLD_PATH to $dir/$NEW_PATH"
-              mkdir -p "$dir/$NEW_PATH"
-              mv "$dir/$OLD_PATH"/* "$dir/$NEW_PATH"/ 2>/dev/null || true
-              rm -rf "$dir/$OLD_PATH"
-            fi
-          done
-        fi
-
-    - name: Grant Execute Permission for Gradlew
-      run: chmod +x ./gradlew
-
-    - name: Build with Gradle
-      run: ./gradlew assembleDebug
-
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4 # এখানে আগের ভুলটি সংশোধন করা হয়েছে
-      with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+          # যদি কোনো পরিবর্তন না থাকে তবে এরর এড়ানোর জন্য চেক
+          if git diff-index --quiet HEAD --; then
+            echo "No changes to commit"
+          else
+            git commit -m "Automated sync: Android files only from plain repo"
+            git push -u origin main --force
+          fi
