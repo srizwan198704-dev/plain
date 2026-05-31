@@ -23,15 +23,18 @@ jobs:
           git config --global user.email "srizwan198704-dev@users.noreply.github.com"
           git clone https://x-access-token:${API_TOKEN_GITHUB}@github.com/srizwan198704-dev/plainapp.git target-repo
 
-      # ৩. শুধুমাত্র এন্ড্রয়েডের ফাইলগুলো কপি করা
-      # (এখানে আমরা সাধারণত একটি এন্ড্রয়েড প্রজেক্টের core ফাইলগুলো রেখে বাকী সব বাদ দিচ্ছি)
+      # ৩. এন্ড্রয়েডের নির্দিষ্ট ফাইল ও ফোল্ডারগুলো কপি করা
       - name: Filter and Copy Android Files
         run: |
           # টার্গেট ফোল্ডার পরিষ্কার করা (পুরানো ফাইল থাকলে মুছে যাবে)
           rm -rf target-repo/*
           
-          # এন্ড্রয়েডের জন্য প্রয়োজনীয় মূল ফাইল/ফোল্ডারগুলো কপি করা
-          # আপনার প্রজেক্টের স্ট্রাকচার অনুযায়ী নিচের নামগুলো প্রয়োজনে পরিবর্তন করতে পারেন
+          # আপনার চাহিদা অনুযায়ী নতুন ফোল্ডার এবং .kts ফাইলগুলো যুক্ত করা হলো
+          cp -r lib target-repo/ 2>/dev/null || true
+          cp build.gradle.kts target-repo/ 2>/dev/null || true
+          cp settings.gradle.kts target-repo/ 2>/dev/null || true
+          
+          # পূর্বের প্রজেক্ট স্ট্রাকচারের ফাইল/ফোল্ডারসমূহ
           cp -r android target-repo/ 2>/dev/null || true
           cp -r app target-repo/ 2>/dev/null || true
           cp build.gradle target-repo/ 2>/dev/null || true
@@ -50,10 +53,10 @@ jobs:
           git checkout -b main 2>/dev/null || git checkout main
           git add -A
           
-          # যদি কোনো পরিবর্তন না থাকে তবে এরর এড়ানোর জন্য চেক
+          # যদি কোনো পরিবর্তন না থাকে তবে এরর এড়ানোর জন্য চেক
           if git diff-index --quiet HEAD --; then
             echo "No changes to commit"
           else
-            git commit -m "Automated sync: Android files only from plain repo"
+            git commit -m "Automated sync: Android files including lib and kts scripts to plainapp"
             git push -u origin main --force
           fi
