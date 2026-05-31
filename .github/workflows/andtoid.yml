@@ -1,0 +1,78 @@
+name: Build Android App with Auto-Detect Package
+
+on:
+  push:
+    branches: [ "main" ] # আপনার মেইন ব্রাঞ্চের নাম অন্য কিছু হলে (যেমন: master) তা পরিবর্তন করে দিন
+  workflow_dispatch: # এর মাধ্যমে আপনি গিটহাব ওয়েবসাইট থেকে ম্যানুয়ালি রান করতে পারবেন
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Auto-Detect and Replace Package Name
+      run: |
+        NEW_PACKAGE="com.konasl.nagad"
+        
+        # app/build.gradle বা app/build.gradle.kts থেকে applicationId বা namespace ডিটেক্ট করা
+        OLD_PACKAGE=$(grep -r "applicationId" app/build.gradle* | head -n 1 | awk -F'["\']' '{print $2}')
+        
+        # যদি applicationId না পাওয়া যায়, তবে namespace চেক করবে
+        if [ -z "$OLD_PACKAGE" ]; then
+          OLD_PACKAGE=$(grep -r "namespace" app/build.gradle* | head -n 1 | awk -F'["\']' '{print $2}')
+        fi
+        
+        # যদি তাও না পাওয়া যায়, তবে বিল্ড এখানে স্টপ হয়ে যাবে
+        if [ -z "$OLD_PACKAGE" ]; then
+          echo "Error: Could not automatically detect the old package name!"
+          exit 1
+        fi
+        
+        echo "Detected Old Package: $OLD_PACKAGE"
+        echo "Target New Package: $NEW_PACKAGE"
+        
+        # যদি পুরোনো এবং নতুন প্যাকেজ একই হয়, তবে রিপ্লেস করার দরকার নেই
+        if [ "$OLD_PACKAGE" = "$NEW_PACKAGE" ]; then
+          echo "Package name is already up to date."
+        else
+          echo "Replacing $OLD_PACKAGE with $NEW_PACKAGE..."
+          
+          # সব ফাইলে টেক্সট রিপ্লেস
+          find . -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "*.xml" -o -name "*.java" -o -name "*.kt" \) -exec sed -i "s/$OLD_PACKAGE/$NEW_PACKAGE/g" {} +
+          
+          # ডিরেক্টরি স্ট্রাকচার (ফোল্ডার) পরিবর্তন
+          OLD_PATH=$(echo $OLD_PACKAGE | tr '.' '/')
+          NEW_PATH=$(echo $NEW_PACKAGE | tr '.' '/')
+          
+          # সম্ভাব্য সব সোর্স ডিরেক্টরিতে ফোল্ডার স্ট্রাকচার আপডেট করা
+          for dir in app/src/main/java app/src/androidTest/java app/src/test/java app/src/main/kotlin; do
+            if [ -d "$dir/$OLD_PATH" ]; then
+              echo "Moving files from $dir/$OLD_PATH to $dir/$NEW_PATH"
+              mkdir -p "$dir/$NEW_PATH"
+              mv "$dir/$OLD_PATH"/* "$dir/$NEW_PATH"/ 2>/dev/null || true
+              rm -rf "$dir/$OLD_PATH"
+            fi
+          done
+        fi
+
+    - name: Grant Execute Permission for Gradlew
+      run: chmod +x ./gradlew
+
+    - name: Build with Gradle
+      run: ./gradlew assembleDebug
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4 # এখানে আগের ভুলটি সংশোধন করা হয়েছে
+      with:
+        name: app-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
